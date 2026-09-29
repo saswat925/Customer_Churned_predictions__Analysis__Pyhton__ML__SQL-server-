@@ -1,4 +1,4 @@
-# 📡 Telecom Customer Churn: End-to-End Machine Learning & SQL Analytics
+# 📡 Telecom Customer Churn: End-to-End Data Science, Machine Learning & SQL Server Project
 
 [![GitHub repo](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/saswat925/Customer_Churned_predictions__Analysis__Pyhton__ML__SQL-server-)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python)](https://www.python.org/)
@@ -6,55 +6,105 @@
 [![Database](https://img.shields.io/badge/Database-MS%20SQL%20Server-red?logo=microsoftsqlserver)](https://www.microsoft.com/sql-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An end-to-end data science, machine learning, and relational database project analyzing subscriber attrition across **243,553 telecom records**. The repository implements strict data hygiene, Benjamini-Hochberg FDR testing, leak-free Scikit-Learn pipelines, statistical sanity checks (label permutation, bootstrap CIs), and automated SQL Server integration.
+An end-to-end data science and relational database warehouse project analyzing attrition dynamics across **243,553 customers** and **14 raw features**. The project implements rigorous exploratory data analysis, geographic consistency audits, leak-free Scikit-Learn pipelines, Benjamini-Hochberg FDR statistical testing, ML benchmarking, empirical sanity checks (label shuffling, bootstrap CI, permutation importance), and production migration to Microsoft SQL Server (`Telecom_Churn_DB`).
 
 ---
 
-## 📌 Executive Summary
-
-* **Objective:** Predict subscriber churn and uncover operational churn drivers across four major operators: **Airtel, Reliance Jio, Vodafone, and BSNL**.
-* **Key Finding:** Despite evaluating multiple tuned architectures (Logistic Regression, Decision Trees, Random Forests, and HistGradientBoosting), model performance peaked at **ROC-AUC ~0.5048**, performing equivalently to a no-skill coin toss.
-* **Audit & Root Cause:** 
-  * Chi-Square tests of independence between geographic fields (`state` vs. `postal_region`: $p = 0.523$, `state` vs. `city`: $p = 0.982$) demonstrated that location attributes were independently randomized.
-  * Feature-to-target correlations hovered near zero ($\vert{}r\vert{} \le 0.0034$), indicating that churn in this dataset behaves as independent random noise.
-* **Strategic Takeaway:** Demographic and basic usage totals fail to predict churn. Further algorithm complexity is ineffective without higher-order behavioral features (e.g., dropped call rates, QoS telemetry, complaint logs, contract commitment).
+## 📋 Table of Contents
+1. [Project Overview & Dataset Dictionary](#-project-overview--dataset-dictionary)
+2. [Executive Summary & Core Findings (TL;DR)](#-executive-summary--core-findings-tldr)
+3. [Data Quality Audit & Cleaning](#-data-quality-audit--cleaning)
+4. [Feature Engineering](#-feature-engineering)
+5. [Exploratory Data Analysis (EDA)](#-exploratory-data-analysis-eda)
+6. [Statistical Hypothesis Testing & FDR Correction](#-statistical-hypothesis-testing--fdr-correction)
+7. [Machine Learning Pipeline & Baseline Comparison](#-machine-learning-pipeline--baseline-comparison)
+8. [Cross-Validation & Hyperparameter Tuning](#-cross-validation--hyperparameter-tuning)
+9. [Signal Verification & Sanity Checks](#-signal-verification--sanity-checks)
+10. [Generated Project Artifacts & Export](#-generated-project-artifacts--export)
+11. [SQL Server Data Warehouse & Analytical Queries](#-sql-server-data-warehouse--analytical-queries)
+12. [Strategic Business Recommendations & Next Steps](#-strategic-business-recommendations--next-steps)
+13. [Setup & Execution Guide](#-setup--execution-guide)
 
 ---
 
-## 🏗️ Project Architecture
+## 📌 Project Overview & Dataset Dictionary
+
+* **Goal:** Predict which telecom subscribers will churn and identify the root business drivers of attrition.
+* **Volume:** 243,553 rows $\times$ 14 raw columns (Memory footprint: ~26.0 MB).
+
+| Column Name | Type | Description |
+| :--- | :---: | :--- |
+| `customer_id` | `int64` | Unique customer identification number (1 to 243,553) |
+| `telecom_partner` | `str` | Network provider: Airtel, Reliance Jio, Vodafone, BSNL |
+| `gender` | `str` | Subscriber gender: Female (F), Male (M) |
+| `age` | `int64` | Subscriber age in years (Range: 18 to 74) |
+| `state` | `str` | Administrative state (28 distinct states) |
+| `city` | `str` | Administrative city (6 distinct metro hubs) |
+| `pincode` | `int64` | Postal identification code (213,442 unique values) |
+| `date_of_registration` | `str` | Subscription creation timestamp (2020-01-01 to 2023-05-04) |
+| `num_dependents` | `int64` | Dependent family count (Range: 0 to 4) |
+| `estimated_salary` | `int64` | Estimated annual income (Range: ₹20,000 to ₹149,999) |
+| `calls_made` | `int64` | Voice calls recorded (Range: -10 to 108) |
+| `sms_sent` | `int64` | Text messages transmitted (Range: -5 to 53) |
+| `data_used` | `int64` | Volume of data consumed in MB (Range: -987 to 10,991) |
+| `churn` | `int64` | **Target variable:** 1 = Churned (20.05%), 0 = Retained (79.95%) |
+
+---
+
+## 💡 Executive Summary & Core Findings (TL;DR)
+
+1. **Model Signal Failure:** Every trained classifier (Logistic Regression, Decision Tree, Random Forest, HistGradientBoosting) scored **ROC-AUC ~ 0.50**, exactly matching an untrained dummy classifier.
+2. **Stable Cross-Validation:** 5-fold cross-validation confirmed this failure is strictly systemic (**0.4985 to 0.5014** across all folds).
+3. **Synthetic / Noise Footprint:** 
+   * Geographical attributes contradict reality: `state`, `city`, and `pincode` are mutually independent (e.g., Karnataka linked to Kolkata; Chi-square $p = 0.523$ and $p = 0.982$).
+   * Absolute linear correlation with churn across all features peaks at an imperceptible **$\vert{}r\vert{} = 0.0034$**.
+4. **Definitive Conclusion:** With demographic and volumetric usage data alone, **individual churn cannot be predicted**. The bottleneck is strictly **the data**, not hyperparameter optimization or algorithmic selection.
+
+---
+
+## 🧹 Data Quality Audit & Cleaning
+
+### 1. Duplicates & Null Audit
+* **Duplicate Rows:** 0 | **Duplicate Customer IDs:** 0
+* **Registration Date:** Converted to datetime format (`2020-01-01` to `2023-05-04`). Unparseable entries: 0.
+
+### 2. Negative Value Quarantine (Usage Logs)
+Usage metrics cannot take negative values in real telecommunications systems. Instead of dropping records or silent median overwriting, boolean indicator flags were created, and invalid figures were masked with `np.nan` for leak-free median imputation inside pipeline transformers:
+
+| Usage Column | Negative Rows | Share of Total | Churn Rate When Negative | Processing Strategy |
+| :--- | :---: | :---: | :---: | :--- |
+| `calls_made` | 6,713 | 2.76% | 20.29% | Flag `calls_made_was_negative`, mask to `NaN` |
+| `sms_sent` | 7,375 | 3.03% | 20.83% | Flag `sms_sent_was_negative`, mask to `NaN` |
+| `data_used` | 6,050 | 2.48% | 20.73% | Flag `data_used_was_negative`, mask to `NaN` |
+
+*Overall churn baseline: **20.05%**.*
+
+### 3. Geographic Consistency Audit
+In real administrative records, postal codes and cities correlate deterministically with their respective states.
+* **City Dispersion:** The average share of the most dominant city within a state is **0.172** (pure random uniform distribution across 6 cities is $\frac{1}{6} \approx 0.167$).
+* **State vs. Postal Region (`pincode[0]`):** Chi-Square test $p = \mathbf{0.523}$
+* **State vs. City:** Chi-Square test $p = \mathbf{0.982}$
+* **Verdict:** High $p$-values confirm that geographic columns are statistically independent, demonstrating that location values were randomly assigned in this synthetic dataset.
+
+---
+
+## 🛠️ Feature Engineering
+
+All engineered features were created on a row-by-row basis to eliminate data leakage:
+* **Account Age (`tenure_months`):** Months between registration and dataset reference cutoff:
+  $$\text{tenure\_months} = \frac{\text{reference\_date} - \text{date\_of\_registration}}{30.44}$$
+* **Temporal Attributes:** Extracted `registration_month` and `registration_dayofweek`.
+* **Usage Intensity Ratios:** Normalized usage per unit of account age:
+  $$\text{calls\_per\_tenure} = \frac{\text{calls\_made}}{\text{tenure\_months} + 1}$$
+  $$\text{sms\_per\_tenure} = \frac{\text{sms\_sent}}{\text{tenure\_months} + 1}$$
+  $$\text{data\_per\_tenure} = \frac{\text{data\_used}}{\text{tenure\_months} + 1}$$
+* **Interaction Feature:** Cross-product column `partner_state` (`telecom_partner` + `_` + `state`).
 
 ```text
-├── outputs/
-│   ├── 01_telecom_churn_cleaned.csv         # Cleaned, feature-engineered dataset (243,553 rows)
-│   ├── 02_model_comparison.csv              # Test set evaluation across 8 model configurations
-│   ├── 03_cross_validation_results.csv      # 5-fold stratified CV performance metrics
-│   ├── 04_statistical_tests.csv             # Mann-Whitney U & Chi-Square tests (raw vs. FDR)
-│   ├── 05_partner_state_churn.csv           # Regional partner-state churn rates & Z-scores
-│   ├── 06_permutation_importance.csv        # Permutation drop metrics
-│   ├── 07_test_predictions.csv              # Out-of-sample predictions & probabilities
-│   └── churn_model.joblib                   # Serialized Random Forest pipeline artifact
-├── telecom_churn_project.ipynb              # Complete end-to-end workflow notebook
-├── README.md
-🔍 Data Quality Audit & Feature Engineering1. Data Cleaning & Anomaly FlaggingImpossible Values: Usage counts cannot be negative. Negative records were identified in calls_made (2.76%), sms_sent (3.03%), and data_used (2.48%).Leakage-Safe Imputation: Rather than dropping rows or applying dataset-wide medians, boolean indicators (*_was_negative) were preserved to capture potential logging errors, and invalid values were converted to NaN for in-pipeline median imputation.2. Feature EngineeringAccount Age (tenure_months): Measured elapsed time relative to the maximum observed registration date.Usage Intensity: Normalized calls, SMS, and data volume per month of tenure (*_per_tenure).Interaction Features: Combined operator and administrative territory (partner_state).📊 Statistical Testing & Hypothesis VerificationTo confirm whether observed demographic differences were statistically meaningful or artifacts of massive sample size ($N \approx 243.5\text{k}$), tests were combined with Benjamini-Hochberg (FDR) corrections:FeatureTest AppliedEffect Size MetricEffect ValueRaw p-valueFDR Adjusted pSignificant (α=0.05)?genderChi-SquareCramér's V0.00510.01220.1952No (False Positive)estimated_salaryMann-Whitney UProb. of Superiority0.50240.10030.4263Nodata_usage_groupChi-SquareCramér's V0.00490.12220.4263Nocalls_madeMann-Whitney UProb. of Superiority0.49830.25780.4498Notenure_monthsMann-Whitney UProb. of Superiority0.50120.41490.5768Nopartner_stateChi-SquareCramér's V0.02250.19590.4498No🤖 Machine Learning Experiments & ValidationModels were evaluated using Scikit-Learn Pipeline architectures to avoid data leakage during cross-validation and hyperparameter search.Raw Input ──► Stratified Split (80/20) ──► Median Imputer ──► Scaler / OneHotEncoder ──► Estimator
-Out-of-Sample Evaluation (Test Set: 48,711 rows)ModelAccuracyPrecisionRecallF1-ScoreROC-AUCPR-AUCRandom Forest0.52720.20240.46210.28150.50480.2037Logistic Regression0.52060.20110.46800.28130.50400.2032HistGradientBoosting (Tuned)0.50630.20200.49580.28700.50360.2027HistGradientBoosting (Base)0.51600.19880.46670.27880.49940.2006Decision Tree0.42670.19860.61270.30000.49500.1983Baseline: Majority Class0.79950.00000.00000.00000.50000.2005Baseline: Stratified Random0.67750.19450.19390.19420.49630.1993Sanity Checks & Signal VerificationShuffled-Label Test: Retraining on permuted targets produced an ROC-AUC of 0.4951 (vs. 0.5040 on empirical data).Bootstrap Confidence Interval: 200-sample bootstrap on Random Forest test probabilities gave a 95% CI of [0.4984, 0.5117]. Since this interval spans 0.50, the model cannot be distinguished from random guessing.Permutation Importance: The top ranking feature (data_per_tenure) resulted in an AUC decrease of only 0.0057, verifying the lack of genuine predictive signal.🗄️ SQL Server Database & Business AnalyticsThe cleaned pipeline data was ingested into Microsoft SQL Server via SQLAlchemy and pyodbc for relational analysis:SQL-- Partner-wise churn distribution
-SELECT
-    telecom_partner,
-    COUNT(*) AS total_customers,
-    SUM(churn) AS churned_customers,
-    CAST(SUM(churn) * 100.0 / COUNT(*) AS DECIMAL(5,2)) AS churn_rate
-FROM dbo.Telecom_Churn
-GROUP BY telecom_partner
-ORDER BY churn_rate DESC;
-Relational FindingsBase Churn Rate: 20.05% overall (48,827 churned / 194,726 retained).Even Carrier Distribution: Churn rates showed minimal variance across operators:Airtel: 20.37%Reliance Jio: 20.02%Vodafone: 19.95%BSNL: 19.86%Average Account Duration: Retained customers averaged 20.05 months, while churned customers averaged 20.00 months.⚡ Quickstart1. Clone & Set Up Virtual EnvironmentBashgit clone [https://github.com/saswat925/Customer_Churned_predictions__Analysis__Pyhton__ML__SQL-server-.git](https://github.com/saswat925/Customer_Churned_predictions__Analysis__Pyhton__ML__SQL-server-.git)
-cd Customer_Churned_predictions__Analysis__Pyhton__ML__SQL-server-
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install numpy pandas matplotlib seaborn scipy scikit-learn joblib sqlalchemy pyodbc
-2. Run the WorkflowExecute the notebook telecom_churn_project.ipynb to recompute the data quality audit, model benchmarks, and CSV/joblib artifacts into the outputs/ folder.3. Load Model ArtifactPythonimport joblib
-
-pipeline = joblib.load("outputs/churn_model.joblib")
-print("Model step:", pipeline.named_steps["model"])
-
-***
-
-<FollowUp label="Want instructions on how to push this directly to your GitHub repository from the command line?" query="Show me the step-by-step
+Final Feature Breakdown:
+├── Numeric (15): age, num_dependents, estimated_salary, calls_made, sms_sent, data_used, 
+│                 tenure_months, registration_month, registration_dayofweek, calls_per_tenure, 
+│                 sms_per_tenure, data_per_tenure, calls_made_was_negative, sms_sent_was_negative, 
+│                 data_used_was_negative
+├── Categorical (5): telecom_partner, gender, state, city, partner_state
+└── Dropped (4): customer_id, date_of_registration, pincode, postal_region
